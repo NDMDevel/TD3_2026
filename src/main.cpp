@@ -1,32 +1,23 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "Timers.h"
-#include "checksum.h"
+#include <LinkedList.h>
+
+LinkedList<WiFiClient> client_list;
+
+uint16_t holding_registers[1000];
+//holding_registers[0]  -> 40001
+//holding_registers[1]  -> 40002
+
+bool coils[256];
+//coils[0]  -> 10001
+//coils[1]  -> 10002
 
 WiFiServer server(5000);
-String sta_SSID = "LAB_ELECTRONICA";
-String sta_PASS = "LabElec2022";
+String sta_SSID = "Nodo Informatico IV";
+String sta_PASS = "utn12345";
 
 Tim32_ms timer;
-
-uint16_t crc_16(uint8_t *buffer, uint16_t length)
-{
-    uint16_t i, j, temp_bit, temp_int, crc;
-    crc = 0xFFFF;
-    for (i = 0; i < length; i++)
-    {
-        temp_int = (unsigned char)*buffer++;
-        crc ^= temp_int;
-        for (j = 0; j < 8; j++)
-        {
-            temp_bit = crc & 0x0001;
-            crc >>= 1;
-            if (temp_bit != 0)
-                crc ^= 0xA001;
-        }
-    }
-    return crc;
-}
 
 void setup()
 {
@@ -39,6 +30,7 @@ void setup()
     while (WiFi.status() != WL_CONNECTED)
     {
         Serial.print(".");
+        delay(500);
     }
     Serial.println("\nConnected IP: "+WiFi.localIP().toString());
 
@@ -46,39 +38,34 @@ void setup()
 
 }
 
+void manage_clients(WiFiClient client)
+{
+    if( client )
+        client_list.add(client);
+    int idx = 0;
+    while( idx < client_list.size() )
+    {
+        if( !client_list[idx].connected() )
+            client_list.remove(idx);
+        else
+            idx++;
+    }
+}
+
 void loop()
 {
-    if( timer > 1s )    
-    {
-        uint16_t mb_address = 40030;
-
-        uint8_t mb_frame[64];
-        mb_frame[0] = 0x01;
-        mb_frame[1] = 0x03;
-        mb_frame[2] = mb_address >> 8;
-        mb_frame[3] = mb_address & 0x00FF;
-        mb_frame[4] = 0x00;
-        mb_frame[5] = 0x01;
-        uint16_t crc = crc_modbus( mb_frame , 6 );
-        mb_frame[6] = crc >> 8;
-        mb_frame[7] = crc & 0x00FF;
-
-        //Serial.write( mb_frame , 8);
-
-        timer.start();
-    }
     WiFiClient client = server.available();
+    manage_clients(client);
 
-    if( client )
+    for( int i=0 ; i<client_list.size() ; i++ )
     {
-        while (client.connected())
+        if( client_list[i].available() )
+            Serial.print(client_list[i].remoteIP().toString() + ": ");
+        while( client_list[i].available() )
         {
-            while (client.available())
-            {
-                uint8_t b = client.read();
-                Serial.printf("%02X ", b);
-            }
+            uint8_t b = client_list[i].read();
+            Serial.printf("%c", b);
         }
-        client.stop();
     }
+
 }
